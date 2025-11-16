@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+
+    <!-- <script type="module" src="script.js"></script> -->
+
+    <link rel="stylesheet" href="style.css">
+
+    <title>The List</title>
+</head>
+
+<body>
+    <div class="main-wrapper">
+        <div class="form-section" style="position: sticky; top: 0; background: white; z-index: 1000; padding-bottom: 1rem;">
+            <h1>The List</h1>
+            <div class="mb-3">
+            <label for="exampleFormControlInput1" class="form-label">Username</label>
+            <input type="username" class="form-control" id="username" placeholder="John Doe">
+            </div>
+            
+            <div class="mb-3">
+            <label for="exampleFormControlTextarea1" class="form-label">What to list</label>
+            <textarea class="form-control" id="listthing" rows="6" style="resize: none;"
+                placeholder="Things to do when your name is John Doe..."></textarea>
+            </div>
+
+            <button class="btn btn-primary" id="btn-send">Add</button>
+        </div>
+
+        <div id="public-list-container-wrapper">
+            <!-- List will be inserted here by script -->
+        </div>
+    </div>
+
+    <!-- Bootstrap -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM"
+        crossorigin="anonymous"></script>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+import { 
+    getFirestore, 
+    collection,
+    addDoc,
+    serverTimestamp,
+    query,
+    orderBy,
+    onSnapshot
+} from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+
+const firebaseConfig = {
+    apiKey: "AIzaSyD0zeSxoY6Gz4o8EQ0q4qdYHRFNfCRXrGM",
+    authDomain: "lijst-site-619cc.firebaseapp.com",
+    projectId: "lijst-site-619cc",
+    storageBucket: "lijst-site-619cc.firebasestorage.app",
+    messagingSenderId: "1015352491802",
+    appId: "1:1015352491802:web:e722efb0c48d41b4f5b6a3",
+    measurementId: "G-3HC4T0S10Q"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+console.log('Firebase initialized');
+
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('DOMContentLoaded event fired');
+
+    const username = document.getElementById('username');
+    const listthing = document.getElementById('listthing');
+    const sendBtn = document.getElementById('btn-send');
+
+    if (!username || !listthing || !sendBtn) {
+        console.error('Missing DOM elements:', { username: !!username, listthing: !!listthing, sendBtn: !!sendBtn });
+        return;
+    }
+
+    console.log('All DOM elements found');
+
+    // Add click handler
+    sendBtn.addEventListener('click', async () => {
+        const user = username.value.trim();
+        const listItem = listthing.value.trim();
+
+        console.log('Add button clicked:', { user, listItem });
+
+        if (!user) {
+            console.error('Username is missing');
+            alert('Please enter a username');
+            return;
+        }
+
+        if (!listItem) {
+            console.error('List item is missing');
+            alert('Please enter an item');
+            return;
+        }
+
+        // (banned-word checks removed)
+
+        try {
+            console.log('Adding item to Firestore...');
+            const publicItemsRef = collection(db, 'public_items');
+            await addDoc(publicItemsRef, {
+                text: listItem,
+                author: user,
+                createdAt: serverTimestamp()
+            });
+
+            console.log('Item added successfully');
+            listthing.value = '';
+        } catch (error) {
+            console.error('Error adding item:', error);
+            alert('Error adding item: ' + error.message);
+        }
+    });
+
+    // Start realtime listener
+    initPublicListListener();
+});
+
+function initPublicListListener() {
+    console.log('Initializing public list listener...');
+
+    // Create UI container if it doesn't exist
+    let listContainer = document.getElementById('public-list-container');
+    if (!listContainer) {
+        const wrapper = document.querySelector('#public-list-container-wrapper');
+        if (!wrapper) {
+            console.warn('Could not find #public-list-container-wrapper; will not create list UI');
+            return;
+        }
+
+        const container = document.createElement('div');
+        container.id = 'public-list-container';
+        container.innerHTML = `
+            <h4>Public List</h4>
+            <ul id="public-list" class="list-group"></ul>
+        `;
+        wrapper.appendChild(container);
+        listContainer = container;
+    }
+
+    const listEl = document.getElementById('public-list');
+
+    // Set up realtime listener
+    const publicItemsRef = collection(db, 'public_items');
+    const q = query(publicItemsRef, orderBy('createdAt', 'desc'));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+        console.log('Snapshot received, items count:', snapshot.size);
+        listEl.innerHTML = '';
+
+        if (snapshot.empty) {
+            const emptyMsg = document.createElement('li');
+            emptyMsg.className = 'list-group-item';
+            emptyMsg.textContent = 'No items yet. Be the first to add one!';
+            listEl.appendChild(emptyMsg);
+            return;
+        }
+
+        snapshot.forEach(docSnap => {
+            const data = docSnap.data();
+            const li = document.createElement('li');
+            li.className = 'list-group-item';
+
+            const strong = document.createElement('strong');
+            strong.textContent = data.author || 'anonymous';
+
+            const br = document.createElement('br');
+
+            const em = document.createElement('em');
+            em.textContent = data.text;
+
+            li.appendChild(strong);
+            li.appendChild(br);
+            li.appendChild(em);
+            listEl.appendChild(li);
+        });
+    }, (err) => {
+        console.error('Snapshot error:', err);
+        alert('Error loading public list: ' + err.message);
+    });
+
+    console.log('Public list listener started');
+}
+    </script>
+
+</body>
+
+</html>
